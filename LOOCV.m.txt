@@ -1,0 +1,6 @@
+function [accuracy, confusion] = LOOCV(net, X, D)
+%  we get the mean accuracy of a neural network with the leave-one-out cross-validation technique
+%  the inputs are the neural network, the database and labels
+%  since LOOCV is a special case of K-fold cross validation, where K is equal to the database size, we just reuse the K-fold function
+    [accuracy, confusion] = k_fold_CV(net, X, D, size(X, 2));
+end

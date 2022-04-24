@@ -1,0 +1,35 @@
+function [accuracy, confusion] = k_fold_CV(net, X, D, k)
+%  we get the mean accuracy of a neural network with the k-fold cross-validation technique
+%  the inputs are the neural network, the database, the labels and a value for k
+
+    fold_size = floor(size(X, 2)/ k);
+    classes_number = size(D, 1);
+    samples_number = size(D, 2);
+    start_points = 1: fold_size: samples_number;
+    accuracies = zeros(1, k);
+    confusion = zeros(classes_number);
+    
+    for i = 1: k
+        index_test  = start_points(i): start_points(i) + fold_size - 1;
+        index_train = setdiff(1: samples_number, index_test);
+        
+        X_train = X(:, index_train);
+        D_train = D(:, index_train);
+        
+        X_test = X(:, index_test);
+        
+        net = train(net, X_train, D_train);
+        Y = net(X_test);
+        
+        [~, D_test] = max(D(:, index_test));
+        [~, D_out ] = max(Y);
+        
+        accuracies(i) = sum(D_out == D_test)/ length(index_test);
+        
+        for j = 1: length(index_test)
+            confusion(D_test(j), D_out(j)) = confusion(D_test(j), D_out(j)) + 1;
+        end
+    end
+    
+    accuracy  = mean(accuracies);
+end

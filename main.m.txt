@@ -1,0 +1,129 @@
+% we perform pattern classification on "Gastrointestinal Lesions in Regular Colonoscopy Data Set" and "LSVT Voice Rehabilitation Data Set"
+% these data sets suffers from small sample size problem
+% we plot the feature extraction matrix in the original data space
+% we comment on the features that contribute towards the classification
+
+%% Cleaning the workspace
+close all;
+clear all;
+clc;
+
+%% Loading the database and settings
+load('LSVT_voice_rehabilitation.mat');
+% diary(char(strcat('log-', char(datetime('now', 'Format', 'y-M-d-H-m-s')), '.txt')));
+
+% Ilumination settings
+% all_lights = find(light_type ~= 0); % select all ilumination indexes
+% white_light = find(light_type == 1); % select just white light ilumination
+% nbi_light = find(light_type == 2); % select just NBI light ilumination
+
+% Database size initial settings
+sample_indices = 1: length(class_label); % use it as a pivot to select the ilumination
+classes_number  = max(class_label(sample_indices)); % get the number of used classes
+
+clear all_lights white_light nbi_light;
+
+% Neural networks settings
+L_mlp = [7, 5]; % 1-by-P vector of neurons for each layer
+L_rbf = 5; % number of neurons for the hidden-layer
+learning_rate = 0.01; % learning rate to be used in weights adjusts
+epochs = 500; % maximum number of epochs
+err = 1e-7; % mean squared error goal for both neural networks
+
+%% Adjust and balance the database and create label vectors
+% this creates a binary label representation where the correct class for a sample is set to 1 and other classes are set to 0
+% the dataset is, also, balanced in order to keep the same number of samples for every class.
+ 
+% we separate all samples by their classes in order to balance and discard extra samples from bigger classes
+% we do this in order to keep all classes with the same number of samples
+
+classified_samples = {};
+classes_upper_bound = size(features(:, sample_indices), 2);
+
+for class = 1: classes_number
+    classified_samples{class} = find(class_label(sample_indices) == class);
+
+    if (size(classified_samples{class}, 2) < classes_upper_bound)
+        classes_upper_bound = size(classified_samples{class}, 2);
+    end
+end
+
+samples_number = classes_upper_bound;
+clear classes_upper_bound;
+
+% since we know which is the smallest class and the number of samples it has (upper bound)
+% it is time to cut off other samples class from classes in which the number of samples is higher than the upper bound
+
+rng('shuffle'); % makeing sure the seed is randomly chosen
+selected_samples_indices = zeros(classes_number, samples_number);
+
+% select the same number of samples for each class
+for class = 1: classes_number
+    class_samples_number = size(classified_samples{class}, 2);
+    class_samples_indices = randperm(class_samples_number, samples_number);
+    selected_samples_indices(class, :) = classified_samples{class}(class_samples_indices);
+end
+
+clear class_samples_number;
+
+% compose the database with just the randomly chosen samples and create the label vectors
+X = zeros(size(features, 1), classes_number* samples_number);
+D = zeros(classes_number, classes_number* samples_number);
+samples_count = zeros(classes_number, 1);
+database_index  = 1;
+
+for sample = 1: samples_number
+    for class = 1: classes_number
+        sample_index = selected_samples_indices(class, sample);
+        X(:, database_index) = features(:, sample_index);
+        D(class, database_index) = 1;
+        samples_count(class) = samples_count(class) + 1;
+        database_index = database_index + 1;
+    end
+end
+
+samples_number = samples_number* classes_number; % samples number is redefined to represent the whole database
+clear class database_index samples_count sample_indices selected_samples_indices;
+
+%% Building neural networks
+mlp = MLP(X, D, L_mlp, learning_rate, epochs, err);
+
+%% Cross validations
+k = 10; % Use it for k-fold
+trials = 1; % Number of times the validations will be called
+
+% variables below store the accuracies for each trial in both LOOCV and k-fold
+mlp_accuracies = zeros(2, trials);
+
+% the following variables store the confusion matrices for both LOOCV and k-fold
+% each confusion matrix is already a mean matrix of the validation internal executions
+
+mlp_confusions = zeros(classes_number, classes_number, 2, trials);
+
+LOOCV_index = 1;
+k_fold_index = 2;
+
+for t = 1: trials
+    fprintf("\n\tLOOCV accuracy: ");
+    [accuracy, confusion] = LOOCV(mlp, X, D);
+    mlp_accuracies(LOOCV_index, t) = accuracy;
+    mlp_confusions(:, :, LOOCV_index, t) = confusion;
+    fprintf("%.4f", mlp_accuracies(LOOCV_index, t));
+
+    fprintf("\n\t%d-fold CV accuracy: ", k);
+    [accuracy, confusion] = k_fold_CV(mlp, X, D, k);
+    mlp_accuracies(k_fold_index, t) = accuracy;
+    mlp_confusions(:, :, k_fold_index, t) = confusion;
+    fprintf("%.4f", mlp_accuracies(k_fold_index, t));
+end
+
+%% Results
+%  we collect the results for MLP classifications
+%  we show the best, worst cases and the mean confusion matrix for each cross validation technique
+
+mlp_best_cases = max(mlp_accuracies, [], 2);
+mlp_worst_cases = min(mlp_accuracies, [], 2);
+mlp_mean_confusion = mean(mlp_confusions, 4);
+
+% diary off;
+mlp = train(mlp, X, D);
